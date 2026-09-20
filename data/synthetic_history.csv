@@ -1,0 +1,6 @@
+date,destination,visitors,season,holiday,weather,hotel_occupancy,avg_price_inr,transport_availability
+2026-08-01,Goa,13800,Monsoon,False,Sunny,0.78,2800,0.85
+2026-08-01,Araku Valley,1200,Monsoon,False,Sunny,0.30,1200,0.90
+2026-08-01,Tirupati,23500,Monsoon,False,Sunny,0.92,1500,0.80
+2026-08-02,Goa,14200,Monsoon,True,Rainy,0.85,3100,0.75
+2026-08-02,Araku Valley,1600,Monsoon,True,Rainy,0.42,1300,0.85
