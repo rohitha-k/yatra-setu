@@ -123,7 +123,7 @@ export default function DestinationsCatalog() {
       state: "Goa",
       days: 4,
       estCost: 16500,
-      image: "https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?w=800",
+      image: "/goa_beach.jpg",
       attractions: ["Calangute Beach", "Basilica of Bom Jesus", "Dudhsagar Falls"],
       tags: { hotel: true, homestay: true, food: true, guide: true, transit: true }
     },
@@ -133,7 +133,7 @@ export default function DestinationsCatalog() {
       state: "Tamil Nadu",
       days: 3,
       estCost: 12500,
-      image: "https://images.unsplash.com/photo-1589182373726-e4f658ab50f0?w=800",
+      image: "/ooty_hills.jpg",
       attractions: ["Ooty Lake", "Doddabetta Peak", "Nilgiri Toy Train"],
       tags: { hotel: true, homestay: true, food: true, guide: false, transit: true }
     },
@@ -143,7 +143,7 @@ export default function DestinationsCatalog() {
       state: "Uttarakhand",
       days: 3,
       estCost: 9500,
-      image: "https://images.unsplash.com/photo-1600100397990-a4b3d70f2d51?w=800",
+      image: "/rishikesh_ganga.jpg",
       attractions: ["Laxman Jhula", "Triveni Ghat Aarti", "River Rafting"],
       tags: { hotel: true, homestay: true, food: true, guide: true, transit: true }
     },
@@ -153,7 +153,7 @@ export default function DestinationsCatalog() {
       state: "Rajasthan",
       days: 3,
       estCost: 17500,
-      image: "https://images.unsplash.com/photo-1615836245337-f5b9b2303f10?w=800",
+      image: "/udaipur_palace.jpg",
       attractions: ["City Palace", "Lake Pichola Boat Ride", "Jagmandir"],
       tags: { hotel: true, homestay: true, food: true, guide: true, transit: true }
     },
@@ -163,7 +163,7 @@ export default function DestinationsCatalog() {
       state: "Kerala",
       days: 2,
       estCost: 14500,
-      image: "https://images.unsplash.com/photo-1602216056096-3b40cc0c9944?w=800",
+      image: "/alleppey_backwaters.jpg",
       attractions: ["Backwater Houseboat Cruise", "Alappuzha Beach", "Punnamada Lake"],
       tags: { hotel: true, homestay: true, food: true, guide: true, transit: true }
     },
@@ -173,7 +173,7 @@ export default function DestinationsCatalog() {
       state: "Puducherry",
       days: 3,
       estCost: 13500,
-      image: "https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=800",
+      image: "/pondicherry_french.jpg",
       attractions: ["Promenade Beach", "French Quarter", "Auroville Dome"],
       tags: { hotel: true, homestay: true, food: true, guide: false, transit: true }
     },
@@ -183,7 +183,7 @@ export default function DestinationsCatalog() {
       state: "Uttar Pradesh",
       days: 2,
       estCost: 10500,
-      image: "https://images.unsplash.com/photo-1564507592333-c60657eea523?w=800",
+      image: "/agra_tajmahal.jpg",
       attractions: ["Taj Mahal", "Agra Fort", "Fatehpur Sikri"],
       tags: { hotel: true, homestay: true, food: true, guide: true, transit: true }
     }

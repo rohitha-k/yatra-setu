@@ -103,9 +103,24 @@ export default function BudgetResults() {
 
   if (!itinerary || !searchParams) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-center space-y-4">
-        <div className="w-8 h-8 animate-spin border-4 border-t-transparent rounded-full" style={{ borderColor: 'var(--brand-primary)', borderTopColor: 'transparent' }} />
-        <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Loading your optimized itinerary...</p>
+      <div className="flex flex-col items-center justify-center min-h-[500px] text-center space-y-6 px-6">
+        <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ background: 'var(--bg-elevated)', border: '2px dashed var(--border-default)' }}>
+          <MapPin className="w-8 h-8" style={{ color: 'var(--text-muted)' }} />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-heading)' }}>No Trip Found</h2>
+          <p className="text-sm max-w-sm" style={{ color: 'var(--text-tertiary)' }}>
+            It looks like you haven't planned a trip yet. Start by entering your destination, budget and travel details.
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/plan')}
+          className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm text-white"
+          style={{ background: 'linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))' }}
+        >
+          <Sparkles className="w-4 h-4" />
+          Plan My Trip
+        </button>
       </div>
     );
   }

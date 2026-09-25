@@ -12,7 +12,10 @@ export default function PlanMyTrip() {
   const [destinationPreference, setDestinationPreference] = useState('');
   const [travelersCount, setTravelersCount] = useState(2);
   const [daysCount, setDaysCount] = useState(3);
-  const [travelDates, setTravelDates] = useState('');
+  const [travelDates, setTravelDates] = useState(() => {
+    const d = new Date(Date.now() + 86400000 * 3);
+    return d.toISOString().split('T')[0];
+  });
   const [budgetLimit, setBudgetLimit] = useState(15000);
   const [requiredBuffer, setRequiredBuffer] = useState(2000); // Optional Buffer (Priority 11)
   const [interests, setInterests] = useState([]);

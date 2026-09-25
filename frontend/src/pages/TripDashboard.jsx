@@ -61,7 +61,9 @@ export default function TripDashboard() {
     );
   }
 
-  const isOwnVehicle = trip.travelMode.toUpperCase() === 'OWN VEHICLE' || trip.travelMode.toUpperCase() === 'OWN CAR' || trip.travelMode.toUpperCase() === 'OWN BIKE';
+  const travelModeRaw = (trip.travelMode || '').toUpperCase();
+  const isOwnVehicle = travelModeRaw === 'OWN VEHICLE' || travelModeRaw === 'OWN CAR' || travelModeRaw === 'OWN BIKE';
+
 
   // Fetch routing coordinates and facilities from service (Priority 8)
   const mapData = mapService.getRouteCoordinates(trip.startingLocation || 'Hyderabad', trip.destination || 'Hampi');

@@ -65,7 +65,7 @@ export default function AuthPortal() {
       } else {
         try {
           await API.login(email.split('@')[0] || 'tourist', password || 'password123');
-          window.location.href = '/plan'; // Reload app state with user
+          window.location.href = '/planner'; // Land directly in full Trip Planner workspace
         } catch (err) {
           alert(err.message || "Login failed");
         }

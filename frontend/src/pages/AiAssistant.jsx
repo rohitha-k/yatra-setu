@@ -54,7 +54,11 @@ export default function AiAssistant() {
 
     // Extract destination name
     let dest = "Hampi";
-    const destinationsList = ["Hampi", "Araku Valley", "Tirupati", "Varanasi", "Coorg", "Jaipur", "Munnar", "Varkala"];
+    const destinationsList = [
+      "Hampi", "Araku Valley", "Tirupati", "Varanasi", "Coorg", "Jaipur",
+      "Munnar", "Varkala", "Goa", "Ooty", "Rishikesh", "Udaipur",
+      "Alleppey", "Pondicherry", "Agra"
+    ];
     for (const d of destinationsList) {
       if (clean.includes(d.toLowerCase())) {
         dest = d;

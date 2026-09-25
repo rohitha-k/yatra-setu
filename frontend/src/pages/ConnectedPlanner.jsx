@@ -6,87 +6,173 @@ import {
   Save, CheckCircle2, AlertTriangle, Clock, Calendar, Users,
   Compass, DollarSign, Shield, Copy, RefreshCw, Car, Train,
   Bus, Plane, ChevronRight, ChevronDown, Sparkles, Navigation,
-  Sliders, MoreVertical, Eye, Layers, Lock, Unlock, EyeOff
+  Sliders, MoreVertical, Eye, Layers, Lock, Unlock, EyeOff,
+  Utensils, Bed, UserCheck, Map
 } from 'lucide-react';
 import YatraMap from '../components/YatraMap';
 import { API, MOCK_DESTINATIONS } from '../services/api';
+import { transportService } from '../services/transportService';
+import { hotelService } from '../services/hotelService';
+import { restaurantService } from '../services/restaurantService';
+import { guideService } from '../services/guideService';
+import { resolveCanonicalDestination } from './TripPlanner';
 
 export default function ConnectedPlanner() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tripId = searchParams.get('id');
 
-  // ── Core Trip State ────────────────────────────────────────────────────────
-  const [trip, setTrip] = useState({
-    title: 'Deccan Heritage & Scenic Circuit',
-    startingLocation: 'Hyderabad',
-    destination: 'Hampi',
-    intermediateCities: [],
-    travelersCount: 2,
-    daysCount: 3,
-    travelDates: new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0],
-    openEnded: false,
-    budgetLimit: 18000,
-    emergencyReserve: 2000,
-    spendableBudget: 16000,
-    travelMode: 'Train',
-    units: 'km',
-    currency: 'INR',
-    isOneWay: false,
-    tags: ['Heritage', 'Scenic', 'Weekend'],
-    revision: 1,
-    stops: [
-      {
-        id: 'stop_orig_1',
-        name: 'Hyderabad Central (Kacheguda)',
-        category: 'ORIGIN',
-        lat: 17.3850,
-        lng: 78.4867,
-        durationMinutes: 0,
-        nights: 0,
-        notes: 'Trip Departure Point',
-        isLocked: true,
-        isSkipped: false
+  // ── Core Trip State — seeded from PlanMyTrip form if available ─────────────
+  const [trip, setTrip] = useState(() => {
+    // Read user inputs passed from PlanMyTrip via localStorage
+    let saved = {};
+    try {
+      const raw = localStorage.getItem('travexa_search');
+      if (raw && raw !== 'undefined' && raw !== 'null') saved = JSON.parse(raw);
+    } catch (_) {}
+
+    const origin = saved.startingLocation || 'Hyderabad';
+    const dest = saved.destinationPreference || 'Hampi';
+    const travelers = Number(saved.travelersCount) || 2;
+    const days = Number(saved.daysCount) || 3;
+    const budget = Number(saved.budgetLimit) || 18000;
+    const reserve = Number(saved.requiredBuffer) || 2000;
+    const travelDate = saved.travelDates || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
+
+    return {
+      title: dest ? `${origin} → ${dest} Journey` : 'Deccan Heritage & Scenic Circuit',
+      startingLocation: origin,
+      destination: dest || 'Hampi',
+      intermediateCities: [],
+      travelersCount: travelers,
+      daysCount: days,
+      travelDates: travelDate,
+      openEnded: false,
+      budgetLimit: budget,
+      emergencyReserve: reserve,
+      spendableBudget: budget - reserve,
+      travelMode: 'Train',
+      units: 'km',
+      currency: 'INR',
+      isOneWay: false,
+      tags: saved.interests && saved.interests.length ? saved.interests : ['Heritage', 'Scenic', 'Weekend'],
+      revision: 1,
+      stops: [
+        {
+          id: 'stop_orig_1',
+          name: `${origin} (Departure)`,
+          category: 'ORIGIN',
+          lat: 17.3850,
+          lng: 78.4867,
+          durationMinutes: 0,
+          nights: 0,
+          notes: 'Trip Departure Point',
+          isLocked: true,
+          isSkipped: false
+        },
+        {
+          id: 'stop_dest_1',
+          name: `${dest || 'Hampi'} (Destination)`,
+          category: 'DESTINATION',
+          lat: 15.3350,
+          lng: 76.4600,
+          durationMinutes: 720,
+          nights: days - 1,
+          notes: 'Main Destination',
+          isLocked: false,
+          isSkipped: false
+        }
+      ],
+      routePreferences: {
+        avoidTolls: false,
+        highwayPriority: true
       },
-      {
-        id: 'stop_inter_1',
-        name: 'Kurnool Rock Gardens & Fort',
-        category: 'ATTRACTION',
-        lat: 15.8281,
-        lng: 78.0373,
-        durationMinutes: 90,
-        nights: 0,
-        notes: 'Mid-route exploration stop',
-        isLocked: false,
-        isSkipped: false
-      },
-      {
-        id: 'stop_dest_1',
-        name: 'Hampi Virupaksha Sanctuary & Ruins',
-        category: 'DESTINATION',
-        lat: 15.3350,
-        lng: 76.4600,
-        durationMinutes: 720,
-        nights: 2,
-        notes: 'UNESCO World Heritage Exploration',
-        isLocked: false,
-        isSkipped: false
-      }
-    ],
-    routePreferences: {
-      avoidTolls: false,
-      highwayPriority: true
-    },
-    routeLegs: [],
-    days: [],
-    ledger: null,
-    warnings: [],
-    overnightSuggestions: [],
-    alternatives: []
+      routeLegs: [],
+      days: [],
+      ledger: null,
+      warnings: [],
+      overnightSuggestions: [],
+      alternatives: []
+    };
   });
 
   // Active day filter tab (F05)
   const [activeDayTab, setActiveDayTab] = useState('ALL'); // 'ALL' | 1 | 2 | 3 ...
+
+  // ── Right Panel Tab: 'map' | 'services' ───────────────────────────────────
+  const [rightPanelTab, setRightPanelTab] = useState('map');
+
+  // ── Service Selection State (merged from TripPlanner) ─────────────────────
+  const [transportsList, setTransportsList] = useState([]);
+  const [staysList, setStaysList] = useState([]);
+  const [eateriesList, setEateriesList] = useState([]);
+  const [guidesList, setGuidesList] = useState([]);
+  const [selectedTransport, setSelectedTransport] = useState(null);
+  const [selectedStay, setSelectedStay] = useState(null);
+  const [selectedFood, setSelectedFood] = useState(null);
+  const [selectedGuide, setSelectedGuide] = useState(null);
+  const [mileage, setMileage] = useState(15);
+  const [servicesLoading, setServicesLoading] = useState(false);
+
+  // Load services whenever destination changes
+  useEffect(() => {
+    const dest = resolveCanonicalDestination(trip.destination);
+    const origin = trip.startingLocation || 'Hyderabad';
+    const date = trip.travelDates || new Date().toISOString().split('T')[0];
+    setServicesLoading(true);
+    Promise.all([
+      transportService.search(origin, dest, date, 'ALL'),
+      hotelService.getHotelsByDestination(dest),
+      restaurantService.getRestaurantsByDestination(dest),
+      guideService.getGuidesByDestination(dest)
+    ]).then(([t, h, r, g]) => {
+      setTransportsList(t || []);
+      setStaysList(h || []);
+      setEateriesList(r || []);
+      setGuidesList(g || []);
+    }).finally(() => setServicesLoading(false));
+  }, [trip.destination, trip.startingLocation]);
+
+  // Compute service costs
+  const travelers = trip.travelersCount || 2;
+  const days = trip.daysCount || 3;
+  const rooms = Math.ceil(travelers / 2);
+  const distKm = 380;
+  const tollFares = 320;
+  const fuelCost = Math.round(distKm / mileage) * 100;
+  const ownVehicleCost = fuelCost + tollFares + 250;
+  const tCost = selectedTransport?.pricePerSeat ? selectedTransport.pricePerSeat * travelers : ownVehicleCost;
+  const sCost = (selectedStay?.pricePerNight || 1200) * days * rooms;
+  const fCost = (selectedFood?.averageMealCost || 150) * travelers * days * 3;
+  const gCost = selectedGuide ? selectedGuide.pricePerDay * days : 0;
+  const servicesTotalCost = tCost + sCost + fCost + gCost;
+
+  // Remaining spendable after services (used in Services tab)
+  const serviceSpendableBudget = trip.budgetLimit - trip.emergencyReserve;
+  const serviceRemaining = serviceSpendableBudget - servicesTotalCost;
+
+  const handleFinalizeTrip = () => {
+    const details = {
+      startingLocation: trip.startingLocation,
+      destination: trip.destination,
+      travelersCount: travelers,
+      daysCount: days,
+      budgetLimit: trip.budgetLimit,
+      requiredBuffer: trip.emergencyReserve,
+      travelMode: selectedTransport?.carrier || 'Own Vehicle',
+      selectedTransport: { id: selectedTransport?.id || 'OWN', cost: tCost, details: selectedTransport?.carrier || `Own Vehicle: ${distKm}km`, type: selectedTransport?.carrier || 'Own Vehicle' },
+      selectedAccommodation: { name: selectedStay?.name || staysList[0]?.name || 'Heritage Homestay', pricePerNight: selectedStay?.pricePerNight || 1200, cost: sCost },
+      selectedFood: { name: selectedFood?.name || eateriesList[0]?.name || 'Local Cuisine', averageMealCost: selectedFood?.averageMealCost || 150, cost: fCost },
+      selectedGuide: selectedGuide ? { name: selectedGuide.name, pricePerDay: selectedGuide.pricePerDay, cost: gCost } : null,
+      activitiesCost: 0,
+      localTransitCost: 0,
+      stops: trip.stops,
+      routeLegs: trip.routeLegs
+    };
+    localStorage.setItem('travexa_itinerary', JSON.stringify(details));
+    localStorage.setItem('travexa_final_trip', JSON.stringify(details));
+    navigate('/results');
+  };
 
   // ── History & Autosave Stack (F04) ─────────────────────────────────────────
   const [history, setHistory] = useState([]);
@@ -776,77 +862,503 @@ export default function ConnectedPlanner() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Interactive Leaflet Map & Details (Cols 6-12) */}
+        {/* RIGHT COLUMN: Map + Services Tabs (Cols 6-12) */}
         <div className="lg:col-span-7 flex flex-col gap-4">
-          
-          {/* Leaflet Map Card with Click-to-add & Marker Selection (F02, F09) */}
-          <div 
-            className="rounded-2xl border shadow-xs p-3 relative overflow-hidden"
-            style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-default)' }}
-          >
-            <div className="flex items-center justify-between pb-2 mb-2 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-              <div className="flex items-center gap-2">
-                <h2 className="font-heritage font-bold text-sm" style={{ color: 'var(--text-heading)' }}>Route Navigation Map</h2>
-                <span className="text-[11px] font-mono font-medium" style={{ color: 'var(--text-tertiary)' }}>
-                  {trip.summary?.totalDistanceKm || 380} {trip.units} • ~{trip.summary?.totalTravelTimeHours || 6.2} hrs
-                </span>
-              </div>
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 font-semibold">
-                Tip: Click on map to drop a new waypoint
-              </p>
-            </div>
 
-            <YatraMap
-              stops={trip.stops}
-              routeLegs={trip.routeLegs}
-              selectedStopId={selectedStopId}
-              onSelectStop={(stop) => setSelectedStopId(stop.id)}
-              onMapClick={handleMapClick}
-              onStopDragEnd={handleStopDragEnd}
-              height="460px"
-            />
+          {/* Tab Switcher: Segmented Pill */}
+          <div
+            className="flex p-1.5 rounded-2xl border shadow-xs gap-1.5 transition-all"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+          >
+            <button
+              onClick={() => setRightPanelTab('map')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                rightPanelTab === 'map'
+                  ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-sm scale-[1.01]'
+                  : 'hover:opacity-90'
+              }`}
+              style={{ color: rightPanelTab === 'map' ? '#FFFFFF' : 'var(--text-secondary)' }}
+            >
+              <Map className="w-4 h-4" />
+              <span>Route Map</span>
+            </button>
+            <button
+              onClick={() => setRightPanelTab('services')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                rightPanelTab === 'services'
+                  ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-sm scale-[1.01]'
+                  : 'hover:opacity-90'
+              }`}
+              style={{ color: rightPanelTab === 'services' ? '#FFFFFF' : 'var(--text-secondary)' }}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Choose Services</span>
+              <span 
+                className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full uppercase"
+                style={{
+                  backgroundColor: rightPanelTab === 'services' ? 'rgba(255,255,255,0.25)' : 'var(--brand-primary-soft)',
+                  color: rightPanelTab === 'services' ? '#FFFFFF' : 'var(--brand-primary)'
+                }}
+              >
+                Booking
+              </span>
+            </button>
           </div>
 
-          {/* Schedule & Cost Summary Drawer (F05 & F15) */}
-          <div 
+          {/* MAP TAB */}
+          {rightPanelTab === 'map' && (
+            <div
+              className="rounded-2xl border shadow-xs p-3.5 relative overflow-hidden transition-all"
+              style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-default)' }}
+            >
+              <div className="flex items-center justify-between pb-3 mb-2.5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-heritage font-bold text-sm" style={{ color: 'var(--text-heading)' }}>Route Navigation Map</h2>
+                  <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-tertiary)' }}>
+                    {trip.summary?.totalDistanceKm || 380} {trip.units} • ~{trip.summary?.totalTravelTimeHours || 6.2} hrs
+                  </span>
+                </div>
+                <p className="text-[11px] font-semibold flex items-center gap-1" style={{ color: 'var(--brand-primary)' }}>
+                  <span>📍 Click map to drop waypoint</span>
+                </p>
+              </div>
+              <YatraMap
+                stops={trip.stops}
+                routeLegs={trip.routeLegs}
+                selectedStopId={selectedStopId}
+                onSelectStop={(stop) => setSelectedStopId(stop.id)}
+                onMapClick={handleMapClick}
+                onStopDragEnd={handleStopDragEnd}
+                height="460px"
+              />
+            </div>
+          )}
+
+          {/* SERVICES TAB */}
+          {rightPanelTab === 'services' && (
+            <div 
+              className="rounded-2xl border shadow-xs flex flex-col gap-4 p-4 transition-all" 
+              style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-default)' }}
+            >
+
+              {servicesLoading && (
+                <div className="flex flex-col items-center justify-center py-12 gap-2 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                  <RefreshCw className="w-5 h-5 animate-spin text-amber-600" />
+                  <span className="font-medium">Fetching verified services for {trip.destination}...</span>
+                </div>
+              )}
+
+              {!servicesLoading && (
+                <>
+                  {/* TRANSPORT SECTION */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-extrabold uppercase flex items-center gap-2" style={{ color: 'var(--text-heading)' }}>
+                        <Car className="w-4 h-4 text-amber-600" />
+                        <span>Transport & Route Transit</span>
+                      </h3>
+                      <span className="text-[11px] font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                        {trip.startingLocation} → {trip.destination}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5">
+                      {/* Own Vehicle option */}
+                      <div
+                        onClick={() => setSelectedTransport(null)}
+                        className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                          !selectedTransport 
+                            ? 'border-amber-500 shadow-xs' 
+                            : 'hover:border-amber-400'
+                        }`}
+                        style={{
+                          backgroundColor: !selectedTransport ? 'var(--brand-primary-soft)' : 'var(--bg-elevated)',
+                          borderColor: !selectedTransport ? 'var(--brand-primary)' : 'var(--border-default)'
+                        }}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs" style={{ color: 'var(--text-heading)' }}>🚗 Own Vehicle / Self-Drive</span>
+                            {!selectedTransport && (
+                              <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-amber-600 text-white flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Selected
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-extrabold text-sm text-amber-600">₹{ownVehicleCost.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                          Estimated fuel ({mileage} km/l) + Fastag Toll ₹{tollFares} + Parking
+                        </div>
+                        {!selectedTransport && (
+                          <div className="flex items-center gap-3 mt-2.5 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                            <label className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>Mileage:</label>
+                            <input
+                              type="range" min="8" max="30" step="1"
+                              value={mileage}
+                              onChange={e => setMileage(Number(e.target.value))}
+                              className="flex-1 accent-amber-600 cursor-pointer"
+                              onClick={e => e.stopPropagation()}
+                            />
+                            <span className="font-bold text-xs text-amber-600 font-mono">{mileage} km/l</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Provider Transports */}
+                      {transportsList.slice(0, 4).map(t => {
+                        const isSelected = selectedTransport?.id === t.id;
+                        return (
+                          <div
+                            key={t.id}
+                            onClick={() => setSelectedTransport(t)}
+                            className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'border-amber-500 shadow-xs' 
+                                : 'hover:border-amber-400'
+                            }`}
+                            style={{
+                              backgroundColor: isSelected ? 'var(--brand-primary-soft)' : 'var(--bg-elevated)',
+                              borderColor: isSelected ? 'var(--brand-primary)' : 'var(--border-default)'
+                            }}
+                          >
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs" style={{ color: 'var(--text-heading)' }}>{t.carrier}</span>
+                                {isSelected && (
+                                  <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-amber-600 text-white flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" /> Selected
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-extrabold text-sm text-amber-600">₹{(t.pricePerSeat * travelers).toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                              <span>{t.time}</span>
+                              <span>•</span>
+                              <span>{t.duration}</span>
+                              <span>•</span>
+                              <span>₹{t.pricePerSeat.toLocaleString('en-IN')}/seat × {travelers} seats</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="h-px my-1" style={{ backgroundColor: 'var(--border-default)' }} />
+
+                  {/* STAY SECTION */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-extrabold uppercase flex items-center gap-2" style={{ color: 'var(--text-heading)' }}>
+                        <Bed className="w-4 h-4 text-blue-500" />
+                        <span>Accommodation</span>
+                      </h3>
+                      <span className="text-[11px] font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                        {days} nights • {rooms} room{rooms > 1 ? 's' : ''}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5">
+                      {staysList.slice(0, 4).map(h => {
+                        const isSelected = selectedStay?.id === h.id;
+                        return (
+                          <div
+                            key={h.id}
+                            onClick={() => setSelectedStay(h)}
+                            className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'border-blue-500 shadow-xs' 
+                                : 'hover:border-blue-400'
+                            }`}
+                            style={{
+                              backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-elevated)',
+                              borderColor: isSelected ? '#3B82F6' : 'var(--border-default)'
+                            }}
+                          >
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs" style={{ color: 'var(--text-heading)' }}>{h.name}</span>
+                                {isSelected && (
+                                  <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-blue-600 text-white flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" /> Selected
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-extrabold text-sm text-blue-600">₹{(h.pricePerNight * days * rooms).toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                              <span>₹{h.pricePerNight.toLocaleString('en-IN')}/night</span>
+                              <span>•</span>
+                              <span className="text-amber-600 font-semibold">★ {h.trustScore || 92}% Trust</span>
+                              {h.isGovernmentApproved && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-emerald-600 font-semibold">🛡️ Govt Approved</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="h-px my-1" style={{ backgroundColor: 'var(--border-default)' }} />
+
+                  {/* FOOD SECTION */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-extrabold uppercase flex items-center gap-2" style={{ color: 'var(--text-heading)' }}>
+                        <Utensils className="w-4 h-4 text-emerald-500" />
+                        <span>Dining & Meals</span>
+                      </h3>
+                      <span className="text-[11px] font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                        {travelers} travelers × {days} days (3 meals/day)
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5">
+                      {eateriesList.slice(0, 3).map(r => {
+                        const isSelected = selectedFood?.id === r.id;
+                        return (
+                          <div
+                            key={r.id}
+                            onClick={() => setSelectedFood(r)}
+                            className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'border-emerald-500 shadow-xs' 
+                                : 'hover:border-emerald-400'
+                            }`}
+                            style={{
+                              backgroundColor: isSelected ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-elevated)',
+                              borderColor: isSelected ? '#10B981' : 'var(--border-default)'
+                            }}
+                          >
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs" style={{ color: 'var(--text-heading)' }}>{r.name}</span>
+                                {isSelected && (
+                                  <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-emerald-600 text-white flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" /> Selected
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-extrabold text-sm text-emerald-600">₹{(r.averageMealCost * travelers * days * 3).toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                              <span>~₹{r.averageMealCost}/meal/person</span>
+                              <span>•</span>
+                              <span className="text-amber-600 font-semibold">★ {r.trustScore || 88}% Rating</span>
+                              {r.cuisine && (
+                                <>
+                                  <span>•</span>
+                                  <span>{r.cuisine}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="h-px my-1" style={{ backgroundColor: 'var(--border-default)' }} />
+
+                  {/* GUIDE SECTION */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-extrabold uppercase flex items-center gap-2" style={{ color: 'var(--text-heading)' }}>
+                        <UserCheck className="w-4 h-4 text-purple-500" />
+                        <span>Certified Tour Guide (Optional)</span>
+                      </h3>
+                      <span className="text-[11px] font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                        Local Expert Assistance
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5">
+                      <div
+                        onClick={() => setSelectedGuide(null)}
+                        className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                          !selectedGuide 
+                            ? 'border-purple-500 shadow-xs' 
+                            : 'hover:border-purple-400'
+                        }`}
+                        style={{
+                          backgroundColor: !selectedGuide ? 'rgba(168, 85, 247, 0.08)' : 'var(--bg-elevated)',
+                          borderColor: !selectedGuide ? '#A855F7' : 'var(--border-default)'
+                        }}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs" style={{ color: 'var(--text-heading)' }}>No Guide (Self-Guided Adventure)</span>
+                            {!selectedGuide && (
+                              <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-purple-600 text-white flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Selected
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-extrabold text-sm text-purple-600">₹0</span>
+                        </div>
+                        <div className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                          Explore independently at your own pace
+                        </div>
+                      </div>
+
+                      {guidesList.slice(0, 3).map(g => {
+                        const isSelected = selectedGuide?.id === g.id;
+                        return (
+                          <div
+                            key={g.id}
+                            onClick={() => setSelectedGuide(g)}
+                            className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'border-purple-500 shadow-xs' 
+                                : 'hover:border-purple-400'
+                            }`}
+                            style={{
+                              backgroundColor: isSelected ? 'rgba(168, 85, 247, 0.08)' : 'var(--bg-elevated)',
+                              borderColor: isSelected ? '#A855F7' : 'var(--border-default)'
+                            }}
+                          >
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs" style={{ color: 'var(--text-heading)' }}>{g.name}</span>
+                                {isSelected && (
+                                  <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-purple-600 text-white flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" /> Selected
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-extrabold text-sm text-purple-600">₹{(g.pricePerDay * days).toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                              <span>₹{g.pricePerDay.toLocaleString('en-IN')}/day</span>
+                              <span>•</span>
+                              <span className="text-amber-600 font-semibold">★ {g.trustScore || 95}% Verified</span>
+                              {g.languages && <span>• {g.languages.slice(0, 2).join(', ')}</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* COST SUMMARY + FINALIZE */}
+                  <div 
+                    className="rounded-2xl p-4.5 border transition-all mt-2 shadow-xs" 
+                    style={{ 
+                      backgroundColor: 'var(--bg-surface)', 
+                      borderColor: serviceRemaining < 0 ? 'var(--status-danger)' : 'var(--border-default)' 
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-[11px] font-extrabold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>
+                        Services Cost Breakdown
+                      </p>
+                      <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                        Spendable: ₹{serviceSpendableBudget.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 text-xs mb-3.5">
+                      <div className="flex justify-between items-center">
+                        <span className="flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                          <Car className="w-3.5 h-3.5 text-amber-600" /> Transport
+                        </span>
+                        <span className="font-semibold">₹{tCost.toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                          <Bed className="w-3.5 h-3.5 text-blue-500" /> Accommodation
+                        </span>
+                        <span className="font-semibold">₹{sCost.toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                          <Utensils className="w-3.5 h-3.5 text-emerald-500" /> Dining & Food
+                        </span>
+                        <span className="font-semibold">₹{fCost.toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                          <UserCheck className="w-3.5 h-3.5 text-purple-500" /> Guide Services
+                        </span>
+                        <span className="font-semibold">₹{gCost.toLocaleString('en-IN')}</span>
+                      </div>
+
+                      {/* Total line */}
+                      <div className="flex justify-between items-center pt-2 border-t font-bold text-sm" style={{ borderColor: 'var(--border-default)' }}>
+                        <span style={{ color: 'var(--text-heading)' }}>Total Estimated Cost</span>
+                        <span className={serviceRemaining < 0 ? 'text-rose-600' : 'text-amber-600'}>
+                          ₹{servicesTotalCost.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar for Budget */}
+                    <div className="mb-3.5">
+                      <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            serviceRemaining < 0 ? 'bg-rose-500' : 'bg-gradient-to-r from-amber-500 to-emerald-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round((servicesTotalCost / (serviceSpendableBudget || 1)) * 100))}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between items-center mt-1.5 text-[11px]">
+                        <span style={{ color: 'var(--text-tertiary)' }}>
+                          {Math.round((servicesTotalCost / (serviceSpendableBudget || 1)) * 100)}% of spendable
+                        </span>
+                        <span className={`font-bold ${serviceRemaining < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                          {serviceRemaining < 0 
+                            ? `₹${Math.abs(serviceRemaining).toLocaleString('en-IN')} Exceeded` 
+                            : `₹${serviceRemaining.toLocaleString('en-IN')} Buffer Remaining`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleFinalizeTrip}
+                      className="w-full py-3 rounded-xl text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-lg hover:scale-[1.01] cursor-pointer"
+                      style={{ background: 'linear-gradient(135deg, #d97706, #ea580c)' }}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Finalize Trip & View Itinerary</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Budget Stats Row (always visible below tabs) */}
+          <div
             className="rounded-2xl border shadow-xs p-4 grid grid-cols-1 md:grid-cols-3 gap-4"
             style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-default)' }}
           >
-            <div 
-              className="p-3 rounded-xl border"
-              style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-            >
+            <div className="p-3 rounded-xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}>
               <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-tertiary)' }}>Total Distance</span>
               <p className="font-extrabold text-base mt-0.5" style={{ color: 'var(--text-heading)' }}>
                 {trip.summary?.totalDistanceKm || 380} {trip.units}
               </p>
               <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                Mode: {trip.travelMode} ({trip.isOneWay ? 'One Way' : 'Round Trip'})
+                Mode: {selectedTransport?.carrier || 'Own Vehicle'} ({trip.isOneWay ? 'One Way' : 'Round Trip'})
               </span>
             </div>
-
-            <div 
-              className="p-3 rounded-xl border"
-              style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-            >
+            <div className="p-3 rounded-xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}>
               <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-tertiary)' }}>Emergency Reserve</span>
-              <p className="font-extrabold text-base text-emerald-600 mt-0.5">
-                ₹{trip.emergencyReserve.toLocaleString('en-IN')}
-              </p>
+              <p className="font-extrabold text-base text-emerald-600 mt-0.5">₹{trip.emergencyReserve.toLocaleString('en-IN')}</p>
               <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>Protected & untouched</span>
             </div>
-
-            <div 
-              className="p-3 rounded-xl border"
-              style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-            >
+            <div className="p-3 rounded-xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}>
               <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-tertiary)' }}>Remaining Spendable</span>
               <p className={`font-extrabold text-base mt-0.5 ${remainingSpendable < 0 ? 'text-rose-600' : 'text-amber-600 dark:text-amber-400'}`}>
                 ₹{remainingSpendable.toLocaleString('en-IN')}
               </p>
-              <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                Limit: ₹{spendableBudget.toLocaleString('en-IN')}
-              </span>
+              <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>Limit: ₹{spendableBudget.toLocaleString('en-IN')}</span>
             </div>
           </div>
         </div>
